@@ -788,7 +788,7 @@ if __name__ == '__main__':
     optimizer = optim.Adam(model.parameters(), lr=0.0001)
     model.train()
 
-    for epoch in range(1, 2):
+    for epoch in range(1, 10):
         (images, image_fns, score_maps, geo_maps, training_masks) = next(batch_it)
         optimizer.zero_grad()
         images = torch.stack([torch.from_numpy(image) for image in images])
