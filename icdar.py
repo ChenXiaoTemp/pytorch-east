@@ -1,24 +1,23 @@
 # coding:utf-8
-import glob
-import csv
-import cv2
-import time
-import os
-import numpy as np
-import json
-import pandas as pd
-import scipy.optimize
-import matplotlib.pyplot as plt
-import matplotlib.patches as Patches
-from shapely.geometry import Polygon
 import argparse
-import model.model as md
+import csv
+import glob
+import json
+import os
+import time
+
+import cv2
+import matplotlib.patches as Patches
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.optim as optim
+from shapely.geometry import Polygon
 
+import model.model as md
 from data_util import GeneratorEnqueuer
 
-LOCAL_WORKSPACE_HOME = "/Users/shawn/Develop/WorkSpace/OCR/DataSets"
+LOCAL_WORKSPACE_HOME = "C:/Develop/ICDAR2015"
 
 parser = argparse.ArgumentParser(description='Process some integers.')
 
@@ -28,7 +27,9 @@ parser.add_argument('--img_path', dest='training_images_path', action='store',
 parser.add_argument('--labels_path', dest='training_labels_path', action='store',
                     default="{}/ch4_training_localization_transcription_gt".format(LOCAL_WORKSPACE_HOME),
                     help='training labels to use')
-
+parser.add_argument('--snapshot_path', dest='model_snapshots_path', action='store',
+                    default="{}/snapshots".format(LOCAL_WORKSPACE_HOME),
+                    help='training images to use')
 parser.add_argument('--max-img-large-side', dest='max_image_large_side', action='store', default=1280,
                     help='max image size of training')
 
@@ -44,11 +45,15 @@ parser.add_argument('--min-crop-side-ratio', dest='min_crop_side_ratio', action=
 parser.add_argument('--geometry', dest='geometry', action='store', default='RBOX',
                     help='which geometry to generate, RBOX or QUAD')
 
-parser.add_argument('dst_folder', metavar='PATH', type=str, nargs='+',
-                    help='output files folder path')
+parser.add_argument('--disable-cuda', action='store_true', default=False,
+                    help='Disable CUDA')
 
 FLAGS = parser.parse_args()
-
+FLAGS.device = None
+if not FLAGS.disable_cuda and torch.cuda.is_available():
+    FLAGS.device = torch.device('cuda')
+else:
+    FLAGS.device = torch.device('cpu')
 
 def get_images():
     files = []
@@ -619,7 +624,7 @@ def generate_rbox(im_size, polys, tags):
     return score_map, geo_map, training_mask
 
 
-def generator(input_size=512, batch_size=32,
+def generator(input_size=512, batch_size=8,
               background_ratio=3. / 8,
               random_scale=np.array([0.5, 1, 2.0, 3.0]),
               vis=False):
@@ -763,7 +768,7 @@ def generator(input_size=512, batch_size=32,
 
 def get_batch(num_workers, **kwargs):
     try:
-        enqueuer = GeneratorEnqueuer(generator(**kwargs), use_multiprocessing=True)
+        enqueuer = GeneratorEnqueuer(generator(**kwargs), use_multiprocessing=False)
         print('Generator use 10 batches for buffering, this may take a while, you can tune this yourself.')
         enqueuer.start(max_queue_size=10, workers=num_workers)
         generator_output = None
@@ -782,24 +787,31 @@ def get_batch(num_workers, **kwargs):
 
 
 if __name__ == '__main__':
-    print('Writing east format labels and images into ', FLAGS.dst_folder)
     batch_it = get_batch(1)
-    model = md.east_reset18()
+    model = md.east_reset18().to(device=FLAGS.device)
+
     optimizer = optim.Adam(model.parameters(), lr=0.0001)
     model.train()
 
-    for epoch in range(1, 10):
+    for epoch in range(1, 100):
         (images, image_fns, score_maps, geo_maps, training_masks) = next(batch_it)
-        optimizer.zero_grad()
         images = torch.stack([torch.from_numpy(image) for image in images])
-        images = images.permute(0, 3, 1, 2)
+        images = images.permute(0, 3, 1, 2).to(device=FLAGS.device)
         score_maps = torch.stack([torch.from_numpy(score_map) for score_map in score_maps])
-        score_maps = score_maps.permute(0, 3, 1, 2)
+        score_maps = score_maps.permute(0, 3, 1, 2).to(device=FLAGS.device)
         geo_maps = torch.stack([torch.from_numpy(geo_map) for geo_map in geo_maps])
-        geo_maps = geo_maps.permute(0, 3, 1, 2)
+        geo_maps = geo_maps.permute(0, 3, 1, 2).to(device=FLAGS.device)
         training_masks = torch.stack([torch.from_numpy(training_mask) for training_mask in training_masks])
-        training_masks = training_masks.permute(0, 3, 1, 2)
-        output, loss = model(images,(score_maps, geo_maps[:, 0:4], geo_maps[:, 4:]), training_masks)
-        print('Loss ', loss.item())
-        loss.backward()
-        optimizer.step()
+        training_masks = training_masks.permute(0, 3, 1, 2).to(device=FLAGS.device)
+        best_loss = 100
+        print("Training ", epoch, " epoch")
+        for inner_epoch in range(1, 10):
+            optimizer.zero_grad()
+            output, loss = model(images,(score_maps, geo_maps[:, 0:4], geo_maps[:, 4:]), training_masks)
+            best_loss=min(best_loss,loss.item())
+            print('Loss ', loss.item())
+            loss.backward()
+            optimizer.step()
+            torch.cuda.empty_cache()
+        torch.save(model.state_dict(), '{}/epoch-{}-{}'.format(FLAGS.model_snapshots_path, epoch, best_loss))
+
