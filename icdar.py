@@ -17,7 +17,7 @@ from shapely.geometry import Polygon
 import model.model as md
 from data_util import GeneratorEnqueuer
 
-LOCAL_WORKSPACE_HOME = "C:/Develop/ICDAR2015"
+LOCAL_WORKSPACE_HOME = "/Users/shawn/Develop/WorkSpace/OCR/DataSets"
 
 parser = argparse.ArgumentParser(description='Process some integers.')
 
@@ -793,7 +793,7 @@ if __name__ == '__main__':
     optimizer = optim.Adam(model.parameters(), lr=0.0001)
     model.train()
 
-    for epoch in range(1, 100):
+    for epoch in range(1, 5):
         (images, image_fns, score_maps, geo_maps, training_masks) = next(batch_it)
         images = torch.stack([torch.from_numpy(image) for image in images])
         images = images.permute(0, 3, 1, 2).to(device=FLAGS.device)
@@ -805,7 +805,7 @@ if __name__ == '__main__':
         training_masks = training_masks.permute(0, 3, 1, 2).to(device=FLAGS.device)
         best_loss = 100
         print("Training ", epoch, " epoch")
-        for inner_epoch in range(1, 10):
+        for inner_epoch in range(1, 3):
             optimizer.zero_grad()
             output, loss = model(images,(score_maps, geo_maps[:, 0:4], geo_maps[:, 4:]), training_masks)
             best_loss=min(best_loss,loss.item())

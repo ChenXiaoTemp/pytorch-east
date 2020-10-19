@@ -229,7 +229,7 @@ class EAST(nn.Module):
         l_aabb = -torch.log((intersaction + 1.0) / (union + 1.0))
         l_angle = 1 - torch.cos(angle_map - gt_angle_map)
         l_g = l_aabb + 20 * l_angle
-        return torch.mean(l_g * gt_score_map * training_mask) + loss_score * 0.01
+        return (l_g * gt_score_map * training_mask).sum()/training_mask.sum() + loss_score * 0.01
 
 
 def _resnet(model_location, block, layers, pretrained, **kwargs):
