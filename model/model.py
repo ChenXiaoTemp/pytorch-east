@@ -202,12 +202,14 @@ class EAST(nn.Module):
 
         res = (score_map, geo_map, angle_map)
 
-        if self.training:
+        loss = None
+
+        if ground_truth is not None:
             loss = self.calculate_loss(res, ground_truth, training_mask=training_mask)
 
         return res, loss
 
-    def forward(self, x, ground_truth, training_mask=None):
+    def forward(self, x, ground_truth=None, training_mask=None):
         return self._forward_impl(x, ground_truth, training_mask)
 
     def calculate_loss(self, calcuation, ground_truth, training_mask):
